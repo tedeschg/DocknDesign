@@ -1,0 +1,4 @@
+complex_name: "test"
+ligand_smiles: "smile"
+protein_path: "path"
+protein_sequence: ""
