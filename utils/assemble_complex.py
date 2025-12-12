@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Assemble a protein–ligand complex using MDAnalysis.
+Assemble a protein–ligand complex using the best docking pose from GNINA output.
 
 - Protein: PDB
-- Ligand: PDB or SDF/MOL (SDF/MOL via RDKit → temporary PDB)
+- Ligand: SDF (multi-pose from GNINA) - automatically extracts the best (first) pose
+- Can also handle single-molecule SDF/MOL/PDB files
 
 Requires:
-    pip install MDAnalysis rdkit-pypi
+    pip install MDAnalysis rdkit
 """
 
 import argparse
@@ -24,39 +25,60 @@ except ImportError:
     AllChem = None
 
 
-def sdf_to_pdb_temp(sdf_file):
+def extract_best_pose_from_sdf(sdf_file, pose_index=0):
     """
-    Convert an SDF/MOL file to a temporary PDB file using RDKit.
-
+    Extract a specific pose from an SDF file (default: first/best pose).
+    
+    Args:
+        sdf_file: Path to SDF file with multiple poses
+        pose_index: Index of pose to extract (0 = best/first)
+    
     Returns:
-        path to temporary PDB file
+        Path to temporary PDB file containing the selected pose
     """
     if Chem is None or AllChem is None:
-        print("ERROR: RDKit is required to handle SDF/MOL ligands.")
-        print("Install it with: pip install rdkit-pypi")
+        print("ERROR: RDKit is required to handle SDF ligands.")
+        print("Install it with: pip install rdkit")
         sys.exit(1)
 
     if not os.path.exists(sdf_file):
-        print(f"ERROR: SDF/MOL file not found: {sdf_file}")
+        print(f"ERROR: SDF file not found: {sdf_file}")
         sys.exit(1)
 
+    # Read all molecules from SDF
     suppl = Chem.SDMolSupplier(sdf_file, removeHs=False)
-    mol = None
-    for m in suppl:
-        if m is not None:
-            mol = m
-            break
-
-    if mol is None:
-        print(f"ERROR: Could not read any molecule from SDF: {sdf_file}")
+    mols = [m for m in suppl if m is not None]
+    
+    if not mols:
+        print(f"ERROR: Could not read any molecules from SDF: {sdf_file}")
         sys.exit(1)
-
+    
+    print(f"Found {len(mols)} pose(s) in SDF file")
+    
+    if pose_index >= len(mols):
+        print(f"ERROR: Requested pose index {pose_index} but only {len(mols)} poses available")
+        sys.exit(1)
+    
+    mol = mols[pose_index]
+    print(f"Extracting pose {pose_index + 1}/{len(mols)} (index {pose_index})")
+    
+    # Print properties if available (GNINA scores)
+    if mol.HasProp('_Name'):
+        print(f"  Ligand name: {mol.GetProp('_Name')}")
+    if mol.HasProp('minimizedAffinity'):
+        print(f"  Affinity: {mol.GetProp('minimizedAffinity')} kcal/mol")
+    if mol.HasProp('CNNscore'):
+        print(f"  CNN score: {mol.GetProp('CNNscore')}")
+    if mol.HasProp('CNNaffinity'):
+        print(f"  CNN affinity: {mol.GetProp('CNNaffinity')}")
+    
     # Ensure we have 3D coordinates
     if mol.GetNumConformers() == 0:
-        print("No conformers found in SDF; generating a 3D conformer with RDKit...")
+        print("WARNING: No conformers found; generating 3D coordinates...")
         AllChem.EmbedMolecule(mol)
         AllChem.UFFOptimizeMolecule(mol)
 
+    # Write to temporary PDB
     tmp = tempfile.NamedTemporaryFile(suffix=".pdb", delete=False)
     tmp_pdb = tmp.name
     tmp.close()
@@ -67,7 +89,31 @@ def sdf_to_pdb_temp(sdf_file):
     return tmp_pdb
 
 
-def assemble_complex(protein_file, ligand_file, output_file):
+def sdf_to_pdb_temp(sdf_file, pose_index=0):
+    """
+    Convert an SDF/MOL file to a temporary PDB file using RDKit.
+    For multi-pose SDF files, extracts the specified pose (default: first/best).
+    
+    Args:
+        sdf_file: Path to SDF file
+        pose_index: Which pose to extract (0 = best/first)
+    
+    Returns:
+        Path to temporary PDB file
+    """
+    return extract_best_pose_from_sdf(sdf_file, pose_index)
+
+
+def assemble_complex(protein_file, ligand_file, output_file, pose_index=0):
+    """
+    Assemble protein-ligand complex.
+    
+    Args:
+        protein_file: Path to protein PDB
+        ligand_file: Path to ligand file (PDB, SDF, MOL, MOL2)
+        output_file: Path for output complex PDB
+        pose_index: For multi-pose SDF files, which pose to use (0 = best)
+    """
     if not os.path.exists(protein_file):
         print(f"ERROR: Protein file not found: {protein_file}")
         sys.exit(1)
@@ -79,7 +125,7 @@ def assemble_complex(protein_file, ligand_file, output_file):
     tmp_pdb_to_delete = None
 
     # --- Load protein ---
-    print(f"Loading protein from: {protein_file}")
+    print(f"\nLoading protein from: {protein_file}")
     u_prot = mda.Universe(protein_file)
 
     # --- Load ligand ---
@@ -88,7 +134,7 @@ def assemble_complex(protein_file, ligand_file, output_file):
         u_lig = mda.Universe(ligand_file)
     elif lig_ext in [".sdf", ".mol"]:
         print(f"Ligand detected as SDF/MOL: {ligand_file}")
-        tmp_pdb = sdf_to_pdb_temp(ligand_file)
+        tmp_pdb = sdf_to_pdb_temp(ligand_file, pose_index)
         tmp_pdb_to_delete = tmp_pdb
         u_lig = mda.Universe(tmp_pdb)
     else:
@@ -96,16 +142,17 @@ def assemble_complex(protein_file, ligand_file, output_file):
         print("Supported ligand formats: .pdb, .ent, .mol2, .sdf, .mol")
         sys.exit(1)
 
-    print(f"Protein atoms: {u_prot.atoms.n_atoms}")
+    print(f"\nProtein atoms: {u_prot.atoms.n_atoms}")
     print(f"Ligand atoms:  {u_lig.atoms.n_atoms}")
 
     # --- Merge ---
-    print("Merging protein and ligand into one Universe...")
+    print("\nMerging protein and ligand into one Universe...")
     u_complex = mda.Merge(u_prot.atoms, u_lig.atoms)
 
-    # You can optionally set a name / residue / segment for the ligand atoms here
-    # e.g. u_complex.atoms[u_prot.atoms.n_atoms:].resnames = "LIG"
-
+    # Set ligand residue name to LIG for clarity
+    ligand_start_idx = u_prot.atoms.n_atoms
+    u_complex.atoms[ligand_start_idx:].residues.resnames = "LIG"
+    
     print(f"Complex atoms total: {u_complex.atoms.n_atoms}")
     print(f"Writing complex to: {output_file}")
     u_complex.atoms.write(output_file)
@@ -118,21 +165,56 @@ def assemble_complex(protein_file, ligand_file, output_file):
         except OSError:
             print(f"Warning: could not remove temporary file: {tmp_pdb_to_delete}")
 
-    print("Done.")
+    print("\n✓ Complex assembly completed successfully!")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Assemble a protein–ligand complex using MDAnalysis."
+        description="Assemble a protein–ligand complex using the best docking pose.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Extract best pose from GNINA output
+  %(prog)s -p protein.pdb -l docked_poses.sdf -o complex.pdb
+
+  # Extract 2nd best pose (index 1)
+  %(prog)s -p protein.pdb -l docked_poses.sdf -o complex.pdb --pose 1
+
+  # Use a single-pose ligand file
+  %(prog)s -p protein.pdb -l ligand.pdb -o complex.pdb
+
+Note: For multi-pose SDF files (e.g., from GNINA), pose 0 is typically the best pose.
+        """
     )
-    parser.add_argument("-p", "--protein", required=True, help="Protein PDB file")
-    parser.add_argument("-l", "--ligand", required=True,
-                        help="Ligand file (.pdb, .ent, .mol2, .sdf, .mol)")
-    parser.add_argument("-o", "--output", default="complex.pdb",
-                        help="Output PDB file (default: complex.pdb)")
+    parser.add_argument(
+        "-p", "--protein",
+        required=True,
+        help="Protein PDB file"
+    )
+    parser.add_argument(
+        "-l", "--ligand",
+        required=True,
+        help="Ligand file (.pdb, .ent, .mol2, .sdf, .mol). For SDF, extracts best pose by default."
+    )
+    parser.add_argument(
+        "-o", "--output",
+        default="complex.pdb",
+        help="Output PDB file (default: complex.pdb)"
+    )
+    parser.add_argument(
+        "--pose",
+        type=int,
+        default=0,
+        help="For multi-pose SDF files, which pose to extract (0 = best/first, 1 = second, etc.). Default: 0"
+    )
 
     args = parser.parse_args()
-    assemble_complex(args.protein, args.ligand, args.output)
+    
+    print("=" * 60)
+    print("Protein-Ligand Complex Assembly")
+    print("=" * 60)
+    
+    assemble_complex(args.protein, args.ligand, args.output, args.pose)
 
 
 if __name__ == "__main__":

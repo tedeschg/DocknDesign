@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Script to run fpocket, identify binding pocket residues and output them to a text file.
+Also generates a grid.txt file with pocket center coordinates for docking.
 Requires: fpocket installed and available in PATH
 """
 
@@ -176,19 +177,22 @@ def parse_fpocket_info(info_file, pocket_number=1):
 
 def parse_pocket_pdb(pocket_pdb):
     """
-    Parse pocket PDB file to extract residues.
+    Parse pocket PDB file to extract residues and atom coordinates.
     
     Args:
         pocket_pdb: Path to the pocket PDB file
         
     Returns:
-        List of tuples (chain, resid, resname)
+        Tuple of (residues_list, coordinates_list)
+        - residues_list: List of tuples (chain, resid, resname)
+        - coordinates_list: List of tuples (x, y, z) for all atoms
     """
     if not os.path.exists(pocket_pdb):
         print(f"Error: Pocket PDB file not found: {pocket_pdb}")
         sys.exit(1)
     
     residues = set()
+    coordinates = []
     
     with open(pocket_pdb, 'r') as f:
         for line in f:
@@ -199,8 +203,57 @@ def parse_pocket_pdb(pocket_pdb):
                 resid = int(line[22:26].strip())
                 resname = line[17:20].strip()
                 residues.add((chain, resid, resname))
+                
+                # Extract coordinates
+                x = float(line[30:38].strip())
+                y = float(line[38:46].strip())
+                z = float(line[46:54].strip())
+                coordinates.append((x, y, z))
     
-    return sorted(list(residues))
+    return sorted(list(residues)), coordinates
+
+def calculate_pocket_center(coordinates):
+    """
+    Calculate the geometric center (center of mass) of pocket atoms.
+    
+    Args:
+        coordinates: List of tuples (x, y, z)
+        
+    Returns:
+        Tuple (center_x, center_y, center_z)
+    """
+    if not coordinates:
+        return (0.0, 0.0, 0.0)
+    
+    n = len(coordinates)
+    center_x = sum(coord[0] for coord in coordinates) / n
+    center_y = sum(coord[1] for coord in coordinates) / n
+    center_z = sum(coord[2] for coord in coordinates) / n
+    
+    return (center_x, center_y, center_z)
+
+def write_grid_file(center, output_file='grid.txt', box_size=20.0):
+    """
+    Write grid configuration file for docking.
+    
+    Args:
+        center: Tuple (x, y, z) coordinates of pocket center
+        output_file: Output file path
+        box_size: Size of the grid box in each dimension (default: 20.0 Å)
+    """
+    center_x, center_y, center_z = center
+    
+    with open(output_file, 'w') as f:
+        f.write(f"center_x {center_x:.3f}\n")
+        f.write(f"center_y {center_y:.3f}\n")
+        f.write(f"center_z {center_z:.3f}\n")
+        f.write(f"size_x {box_size:.1f}\n")
+        f.write(f"size_y {box_size:.1f}\n")
+        f.write(f"size_z {box_size:.1f}\n")
+    
+    print(f"\nGrid file written to: {output_file}")
+    print(f"Center: ({center_x:.3f}, {center_y:.3f}, {center_z:.3f})")
+    print(f"Box size: {box_size:.1f} Å in each dimension")
 
 def write_residues_output(residues, output_file='pocket_residues.txt', format_type='simple'):
     """
@@ -226,16 +279,20 @@ def write_residues_output(residues, output_file='pocket_residues.txt', format_ty
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Run fpocket and extract binding pocket residues.',
+        description='Run fpocket and extract binding pocket residues with grid coordinates.',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   %(prog)s -i protein.pdb
   %(prog)s -i protein.pdb -p 2 -o pocket2_residues.txt
-  %(prog)s -i protein.pdb -p 3 --format detailed
+  %(prog)s -i protein.pdb -p 3 --format detailed --box-size 25.0
   
 Pockets are automatically ranked by druggability score (highest first).
 -p 1 selects the best pocket, -p 2 the second best, etc.
+
+Outputs:
+  - pocket_residues.txt: List of pocket residues
+  - grid.txt: Grid box configuration for docking (center and size)
         """
     )
     
@@ -251,6 +308,15 @@ Pockets are automatically ranked by druggability score (highest first).
     parser.add_argument('-o', '--output',
                         default='pocket_residues.txt',
                         help='Output text file for pocket residues (default: pocket_residues.txt)')
+    
+    parser.add_argument('-g', '--grid',
+                        default='grid.txt',
+                        help='Output grid file for docking (default: grid.txt)')
+    
+    parser.add_argument('--box-size',
+                        type=float,
+                        default=20.0,
+                        help='Grid box size in Angstroms (default: 20.0)')
     
     parser.add_argument('--format',
                         choices=['simple', 'detailed'],
@@ -295,17 +361,25 @@ Pockets are automatically ranked by druggability score (highest first).
     
     if os.path.exists(pocket_pdb):
         print(f"\nParsing pocket PDB file: {pocket_pdb}")
-        residues = parse_pocket_pdb(pocket_pdb)
+        residues, coordinates = parse_pocket_pdb(pocket_pdb)
+        
+        # Calculate pocket center
+        center = calculate_pocket_center(coordinates)
+        
+        # Write grid file
+        write_grid_file(center, args.grid, args.box_size)
     else:
-        # Fallback to info file
+        # Fallback to info file (no coordinates available)
         print(f"\nPocket PDB not found, trying info file...")
+        print("Warning: Cannot generate grid.txt without pocket PDB coordinates")
         residues = parse_fpocket_info(info_file, pocket_number)
+        center = None
     
     if not residues:
         print(f"Warning: No residues found for pocket {pocket_number}")
         sys.exit(1)
     
-    # Write output
+    # Write residues output
     write_residues_output(residues, args.output, args.format)
     
     # Print summary

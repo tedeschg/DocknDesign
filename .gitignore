@@ -1,4 +1,5 @@
-pkg/
+pkgs/
 test_reinvent/
 test_score/
 test.ipynb
+pdbs/

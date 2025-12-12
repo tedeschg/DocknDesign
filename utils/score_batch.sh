@@ -2,40 +2,44 @@
 set -e
 
 N=20
+BASE_DIR="$(pwd)"
 
 SCORE_SCRIPT="/home/tedeschg/prj/dockndesign/utils/lmpnn_score.py"
 PDB="/home/tedeschg/prj/dockndesign/pdbs/pdk1/pdk1.pdb"
-POCKET="pocket_residues.txt"
+POCKET="${BASE_DIR}/pocket_residues.txt"
 
-OUTFILE="scores_summary.txt"
+OUTFILE="${BASE_DIR}/scores_summary.txt"
+LOGFILE="${BASE_DIR}/score_with_mutations.log"
+
 echo "Complex    Score" > "$OUTFILE"
 echo "-----------------" >> "$OUTFILE"
+: > "$LOGFILE"   # svuota il log a inizio run
 
 for i in $(seq 1 $N); do
-
-    FOLDER="lmpnn${i}"
+    FOLDER="${BASE_DIR}/lmpnn_results/lmpnn${i}"
     FASTA="${FOLDER}/seqs/complex${i}.fa"
 
-    echo "======================================"
-    echo " Scoring LMPNN output: ${FASTA}"
-    echo "======================================"
+    echo "Scoring: $FASTA"
 
-    # Esegui comando e cattura l'output
+    if [[ ! -f "$FASTA" ]]; then
+        echo "WARNING: $FASTA not found, skipping."
+        continue
+    fi
+
     OUTPUT=$(python "$SCORE_SCRIPT" \
         -f "$FASTA" \
         -p "$PDB" \
-        -r "$POCKET")
+        -r "$POCKET" \
+        --show-mutations
+    )
 
-    # Estrai la riga "FINAL SCORE : xxxx"
-    SCORE=$(echo "$OUTPUT" | grep "FINAL SCORE" | awk '{print $4}')
+    {
+      echo "===== complex${i} ====="
+      echo "$OUTPUT"
+      echo
+    } >> "$LOGFILE"
 
-    # Scrivi nel file
+    SCORE=$(echo "$OUTPUT" | awk '/FINAL SCORE/ {print $NF}')
     echo "complex${i}    ${SCORE}" >> "$OUTFILE"
-
-    # Stampa anche a schermo
     echo "complex${i} score = ${SCORE}"
-
 done
-
-echo ""
-echo "Tutti gli score salvati in: $OUTFILE"
