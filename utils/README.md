@@ -3,13 +3,17 @@
   python /home/tedeschg/prj/dockndesign/utils/sel_residues.py -i protein.pdb
   python /home/tedeschg/prj/dockndesign/utils/sel_residues.py -i protein.pdb -p 2 -o pocket2_residues.txt
   python /home/tedeschg/prj/dockndesign/utils/sel_residues.py -i protein.pdb -p 3 --format detailed
-  python /home/tedeschg/prj/dockndesign/utils/sel_residues.py -i protein.pdb --fasta seq.fasta --fasta-chain A 
 
 Note: -p 3 -i protein.pdb #Si specifica -p (ig: 3) per selezionare il terzo pocket con il druggability-score piu alto
 
-2) build_csv.py #for DiffDock
+2) build_yaml.py
 
-  python /home/tedeschg/prj/dockndesign/utils/build_csv.py -i input.yaml -o hiv.csv
+python /home/tedeschg/prj/dockndesign/utils/build_yaml.py smile.smi -o config.yaml
+python /home/tedeschg/prj/dockndesign/utils/script.py smile.smi -o config.yaml -n "test_multi" -p "/path/to/protein.pdb"
+
+3) build_csv.py #for DiffDock
+
+  python /home/tedeschg/prj/dockndesign/utils/build_csv.py -i xxx.yaml -o xxx.csv
 
 """""""""""""""""""""""""""""""""
 ./run_diffdoc k.sh
