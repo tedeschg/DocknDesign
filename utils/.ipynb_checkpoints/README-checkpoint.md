@@ -1,22 +1,22 @@
 1) sel_residues.py #Automaticamente seleziona il pocket con il druggability-score migliore
 
-  python /home/jovyan/dockndesign/utils/sel_residues.py -i protein.pdb
-  python xxx/sel_residues.py -i protein.pdb -p 2 -o pocket2_residues.txt
-  python xxx/sel_residues.py -i protein.pdb -p 3 --format detailed
+  python /home/tedeschg/prj/dockndesign/utils/sel_residues.py -i protein.pdb
+  python /home/tedeschg/prj/dockndesign/utils/sel_residues.py -i protein.pdb -p 2 -o pocket2_residues.txt
+  python /home/tedeschg/prj/dockndesign/utils/sel_residues.py -i protein.pdb -p 3 --format detailed
 
 Note: -p 3 -i protein.pdb #Si specifica -p (ig: 3) per selezionare il terzo pocket con il druggability-score piu alto
 
 2) build_yaml.py
 
- python /home/jovyan/dockndesign/utils/build_yaml.py  smile.smi -o config.yaml
- python xxx/script.py smile.smi -o config.yaml -n "test_multi" -p "/path/to/protein.pdb"
+python /home/tedeschg/prj/dockndesign/utils/build_yaml.py smile.smi -o config.yaml
+python /home/tedeschg/prj/dockndesign/utils/script.py smile.smi -o config.yaml -n "test_multi" -p "/path/to/protein.pdb"
 
 3) build_csv.py #for DiffDock
 
-  python /home/jovyan/dockndesign/utils/build_csv.py -i xxx.yaml -o xxx.csv
+  python /home/tedeschg/prj/dockndesign/utils/build_csv.py -i xxx.yaml -o xxx.csv
 
 """""""""""""""""""""""""""""""""
-./run_diffdock.sh
+./run_diffdoc k.sh
 
 OR
 
